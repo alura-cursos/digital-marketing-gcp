@@ -1,0 +1,59 @@
+# Criando lista com variaveis quantitativas
+quant = list(set(totals) - set(coluna_na) - set(['transactionRevenue','transactions']))
+
+#Criando dataframe com os resultadas quantitativos das sessoes
+visitas_totals = visitas.groupby('fullVisitorId',as_index=False)[quant].sum()
+
+# Última visita
+visitas_ultima = visitas.groupby('fullVisitorId',as_index=False)
+visitas_ultima = visitas_ultima['visitNumber'].max()
+
+# Combinação entre visitantes e visitas únicos
+usuarios_visitas_unicos = visitas.drop_duplicates(subset=['fullVisitorId','visitNumber'])
+
+# Dataframe usuários com todos os usuários unicos e sua última visita
+usuarios = pd.merge(visitas_ultima,usuarios_visitas_unicos,left_on=['fullVisitorId','visitNumber'],
+                    right_on=['fullVisitorId','visitNumber'],how='left')
+
+# Primeira visita
+visitas_primeira = visitas.groupby('fullVisitorId',as_index=False)['visitNumber'].min()
+visitas_primeira.set_index('fullVisitorId',inplace=True)
+
+# Dataframe usuários com todos os usuários unicos + sua última visita + primeira visita
+usuarios = usuarios.join(visitas_primeira,how='left',on='fullVisitorId',rsuffix='_primeira')
+usuarios = pd.merge(usuarios,usuarios_visitas_unicos,left_on=['fullVisitorId','visitNumber_primeira'],
+                    right_on=['fullVisitorId','visitNumber'],how='left',suffixes=('_ultima','_primeira'))
+
+# Dataframe usuários com todos os usuários unicos + sua última visita + primeira visita + somatório das colunas quant
+usuarios = pd.merge(usuarios,visitas_totals,left_on=['fullVisitorId'],
+                    right_on=['fullVisitorId'],how='left')
+
+# Removendo totais
+for i in quant:
+    usuarios.drop(i+'_primeira',axis=1,inplace=True)
+    usuarios.drop(i+'_ultima',axis=1,inplace=True)
+
+# Calculando o tempo entre primeira e última visista
+usuarios['tempo_visitas'] = usuarios.visitStartTime_ultima - usuarios.visitStartTime_primeira
+
+
+#Removendo as colunas Ids
+ids = ['fullVisitorId', 'visitId_ultima','visitId_primeira']
+usuarios.drop(ids,axis=1,inplace=True)
+
+#Criando uma variavel y com a coluna resposta
+y = usuarios.totalTransactionRevenue.copy()
+y.fillna(0,inplace=True)
+y[y<0] = 0
+
+#Criando uma variavel X com todas as variaveis menos a resposta
+X = usuarios.drop('totalTransactionRevenue',axis=1)
+
+
+#Transformando as variaveis qualitativas em numeros
+from sklearn.preprocessing import LabelEncoder
+quali = usuarios.dtypes[usuarios.dtypes == 'object'].keys()
+for col in quali:
+    lbl = LabelEncoder()
+    lbl.fit(list(X[col].values.astype('str')))
+    X[col] = lbl.transform(list(X[col].values.astype('str')))
